@@ -68,7 +68,7 @@ async function sendToWhatsApp(order: any) {
     type: "template" as const,
     template: {
       name: "new_order_notification",
-      language: { code: "en_US" },
+      language: { code: "en" },
       components: [
         {
           type: "body" as const,
