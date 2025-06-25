@@ -110,7 +110,7 @@ async function sendToWhatsApp(order: any) {
           sub_type: "quick_reply" as const,
           index: 1,
           parameters: [
-            { type: "payload" as const, text: "Fulfill Order" }
+            { type: "payload" as const, payload: "Fulfill Order" }
           ]
         },
         {
@@ -118,7 +118,7 @@ async function sendToWhatsApp(order: any) {
           sub_type: "quick_reply" as const,
           index: 2,
           parameters: [
-            { type: "payload" as const, text: "Cancel Fulfillment" }
+            { type: "payload" as const, payload: "Cancel Fulfillment" }
           ]
         },
         {
@@ -126,7 +126,7 @@ async function sendToWhatsApp(order: any) {
           sub_type: "quick_reply" as const,
           index: 3,
           parameters: [
-            { type: "payload" as const, text: "Cancel Order" }
+            { type: "payload" as const, payload: "Cancel Order" }
           ]
         },
         {
@@ -134,7 +134,7 @@ async function sendToWhatsApp(order: any) {
           sub_type: "quick_reply" as const,
           index: 4,
           parameters: [
-            { type: "payload" as const, text: "Ready For Pickup" }
+            { type: "payload" as const, payload: "Ready For Pickup" }
           ]
         }
       ]
