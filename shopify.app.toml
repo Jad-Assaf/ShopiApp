@@ -1,0 +1,3 @@
+[[webhooks.subscriptions]]
+topics = ["orders/create", "orders/updated"]
+uri    = "/webhooks/orders"
