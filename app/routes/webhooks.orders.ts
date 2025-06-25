@@ -9,7 +9,7 @@ export const loader: LoaderFunction = async () => {
 export const action: ActionFunction = async ({ request }) => {
   console.log("🔔 [action] POST /webhooks/orders start");
   try {
-    // 1. Log the Shopify topic header
+    // 1. Read & log the Shopify topic
     const headers = Object.fromEntries(request.headers);
     const topic   = headers["x-shopify-topic"];
     console.log("📦 Shopify Topic:", topic);
@@ -18,11 +18,16 @@ export const action: ActionFunction = async ({ request }) => {
     const raw = await request.text();
     console.log("📥 Raw body:", raw);
 
-    // 3. Parse JSON and log it
-    let body: any;
+    // 3. Parse JSON
+    let order: any;
     try {
-      body = JSON.parse(raw);
-      console.log("✅ Parsed body:", body);
+      order = JSON.parse(raw);
+      console.log("✅ Parsed body:", {
+        id: order.id,
+        order_number: order.order_number,
+        customer: order.customer?.first_name,
+        items: order.line_items.length
+      });
     } catch (err) {
       console.error("❌ JSON parse error:", err);
       return json({ error: "Invalid JSON" }, { status: 400 });
@@ -30,7 +35,7 @@ export const action: ActionFunction = async ({ request }) => {
 
     // 4. Forward to WhatsApp
     try {
-      const res = await sendToWhatsApp(body);
+      const res = await sendToWhatsApp(order);
       const text = await res.text();
       console.log("📤 WhatsApp API response:", res.status, text);
     } catch (err) {
@@ -46,35 +51,75 @@ export const action: ActionFunction = async ({ request }) => {
   }
 };
 
-// Helper to forward the order payload to WhatsApp Cloud API
+/** 
+ * Helper to forward the order payload to WhatsApp Cloud API 
+ * Assumes you have a pre-approved WhatsApp template with 8 placeholders:
+ * {{1}} Order #, {{2}} Name, {{3}} Email, {{4}} Phone, 
+ * {{5}} Address, {{6}} Item, {{7}} Quantity, {{8}} Total Items
+ */
 async function sendToWhatsApp(order: any) {
   const url = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+
+  // Prepare values
+  const orderNumber   = String(order.order_number);
+  const customerName  = `${order.customer?.first_name ?? ""} ${order.customer?.last_name ?? ""}`.trim() || "Unknown";
+  const email         = order.email ?? "N/A";
+  const phone         =
+    order.phone ||
+    order.shipping_address?.phone ||
+    order.billing_address?.phone ||
+    "N/A";
+  const addressParts  = order.shipping_address || order.billing_address || {};
+  const address       = [
+    addressParts.address1,
+    addressParts.address2,
+    addressParts.city,
+    addressParts.province,
+    addressParts.country,
+    addressParts.zip
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const firstItem     = order.line_items[0] || {};
+  const itemName      = firstItem.title || "N/A";
+  const itemQty       = String(firstItem.quantity ?? 0);
+  const totalItems    = String(
+    order.line_items.reduce((sum: number, li: any) => sum + (li.quantity || 0), 0)
+  );
+
   const payload = {
     messaging_product: "whatsapp",
     to: process.env.GROUP_WHATSAPP_NUMBER,
     type: "template" as const,
     template: {
-      name: "order_notification",
-      language: { code: "en_US" },
+      name: "new_order_notification", // your template name
+      language: { code: "en" },
       components: [
         {
           type: "body" as const,
           parameters: [
-            { type: "text" as const, text: order.name },
-            { type: "text" as const, text: order.customer?.first_name ?? "N/A" },
-          ],
-        },
-      ],
-    },
+            { type: "text" as const, text: orderNumber },
+            { type: "text" as const, text: customerName },
+            { type: "text" as const, text: email },
+            { type: "text" as const, text: phone },
+            { type: "text" as const, text: address },
+            { type: "text" as const, text: itemName },
+            { type: "text" as const, text: itemQty },
+            { type: "text" as const, text: totalItems }
+          ]
+        }
+      ]
+    }
   };
+
   console.log("🔗 WhatsApp payload:", JSON.stringify(payload));
 
   return fetch(url, {
     method: "POST",
     headers: {
       "Content-Type":  "application/json",
-      Authorization:    `Bearer ${process.env.WHATSAPP_TOKEN}`,
+      Authorization:    `Bearer ${process.env.WHATSAPP_TOKEN}`
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload)
   });
 }
