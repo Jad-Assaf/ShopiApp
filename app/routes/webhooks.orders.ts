@@ -111,14 +111,14 @@ async function sendToWhatsApp(order: any) {
         {
           type: "button" as const,
           sub_type: "url" as const,
-          index: "0",
+          index: 0,
           parameters: [
             {
               type: "text" as const,
-              payload: String(order.id)
+              text: String(order.id)
             }
           ]
-        }
+        }        
       ]
     }
   };
