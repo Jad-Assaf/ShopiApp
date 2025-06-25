@@ -83,9 +83,8 @@ async function sendToWhatsApp(order: any) {
   const firstItem = order.line_items[0] || {};
   const itemName = firstItem.title || "N/A";
   const itemQty = String(firstItem.quantity ?? 0);
-  const totalItems = String(
-    order.line_items.reduce((sum: number, li: any) => sum + (li.quantity || 0), 0)
-  );
+  const totalPrice = String(order.current_total_price);
+
 
   const payload = {
     messaging_product: "whatsapp",
@@ -105,7 +104,7 @@ async function sendToWhatsApp(order: any) {
             { type: "text" as const, text: address },
             { type: "text" as const, text: itemName },
             { type: "text" as const, text: itemQty },
-            { type: "text" as const, text: totalItems }
+            { type: "text" as const, text: totalPrice }
           ]
         },
         {
