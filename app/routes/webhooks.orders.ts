@@ -1,79 +1,52 @@
 // app/routes/webhooks.orders.ts
-import { json, type ActionFunction } from "@remix-run/node";
-import crypto from "crypto";
+import { json, type LoaderFunction, type ActionFunction } from "@remix-run/node";
 
-// 204 for GET/health-checks
-export const loader = () => new Response(null, { status: 204 });
-
-export const action: ActionFunction = async ({ request }) => {
-  console.log("[webhooks.orders] ➡️ Incoming Shopify webhook");
-
-  // 1. Read raw bytes
-  const arrayBuffer = await request.arrayBuffer();
-  const rawBodyBuf  = Buffer.from(arrayBuffer);
-  console.log(
-    "[webhooks.orders] 🔍 Raw body (first 200 bytes):",
-    rawBodyBuf.slice(0, 200).toString("utf8")
-  );
-
-  // 2. Extract headers
-  const hmacHeader  = request.headers.get("X-Shopify-Hmac-Sha256") || "";
-  const topicHeader = request.headers.get("X-Shopify-Topic") || "";
-  console.log("[webhooks.orders] 🏷️ Topic:", topicHeader);
-  console.log("[webhooks.orders] 🏷️ Shopify HMAC:", hmacHeader);
-
-  // 3. Compute HMAC
-  const computedHmac = crypto
-    .createHmac("sha256", process.env.SHOPIFY_APP_SECRET!)
-    .update(rawBodyBuf)
-    .digest("base64");
-  console.log("[webhooks.orders] 🔑 Computed HMAC:", computedHmac);
-
-  // 4. Timing-safe compare
-  const validSignature = crypto.timingSafeEqual(
-    Buffer.from(computedHmac, "utf8"),
-    Buffer.from(hmacHeader, "utf8")
-  );
-  console.log(`[webhooks.orders] ✔️ Signature valid? ${validSignature}`);
-
-  if (!validSignature) {
-    console.error("[webhooks.orders] ❌ Invalid signature. Aborting.");
-    return json({ error: "Invalid HMAC signature" }, { status: 401 });
-  }
-
-  // 5. Parse JSON
-  let order: any;
-  try {
-    order = JSON.parse(rawBodyBuf.toString("utf8"));
-    console.log("[webhooks.orders] 🛎️ Parsed order:", {
-      id: order.id,
-      customer: order.customer?.first_name,
-      total: order.total_price,
-    });
-  } catch (err) {
-    console.error("[webhooks.orders] ❌ JSON parse error:", err);
-    return json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  // 6. Forward to WhatsApp (template name and components omitted for brevity)
-  try {
-    const result = await sendToWhatsApp(order);
-    console.log(
-      "[webhooks.orders] 📤 WhatsApp API response:",
-      result.status,
-      await result.text()
-    );
-  } catch (err) {
-    console.error("[webhooks.orders] ❌ WhatsApp send error:", err);
-    // Return 502 so Shopify may retry, if desired
-    return json({ error: "WhatsApp send failed" }, { status: 502 });
-  }
-
-  console.log("[webhooks.orders] ✅ Webhook handled successfully.");
-  return json({ received: true }, { status: 200 });
+export const loader: LoaderFunction = async () => {
+  console.log("🔍 [loader] GET /webhooks/orders");
+  return json({ message: "POST only" }, { status: 200 });
 };
 
-// Helper to forward the order to WhatsApp Cloud API
+export const action: ActionFunction = async ({ request }) => {
+  console.log("🔔 [action] POST /webhooks/orders start");
+  try {
+    // 1. Log the Shopify topic header
+    const headers = Object.fromEntries(request.headers);
+    const topic   = headers["x-shopify-topic"];
+    console.log("📦 Shopify Topic:", topic);
+
+    // 2. Read & log the raw body
+    const raw = await request.text();
+    console.log("📥 Raw body:", raw);
+
+    // 3. Parse JSON and log it
+    let body: any;
+    try {
+      body = JSON.parse(raw);
+      console.log("✅ Parsed body:", body);
+    } catch (err) {
+      console.error("❌ JSON parse error:", err);
+      return json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    // 4. Forward to WhatsApp
+    try {
+      const res = await sendToWhatsApp(body);
+      const text = await res.text();
+      console.log("📤 WhatsApp API response:", res.status, text);
+    } catch (err) {
+      console.error("❌ WhatsApp send error:", err);
+      return json({ error: "WhatsApp send failed" }, { status: 502 });
+    }
+
+    console.log("✅ Webhook handled successfully.");
+    return json({ success: true }, { status: 200 });
+  } catch (err: any) {
+    console.error("❌ [action] Unhandled error:", err.stack || err);
+    return json({ error: "Server error" }, { status: 500 });
+  }
+};
+
+// Helper to forward the order payload to WhatsApp Cloud API
 async function sendToWhatsApp(order: any) {
   const url = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   const payload = {
@@ -94,13 +67,13 @@ async function sendToWhatsApp(order: any) {
       ],
     },
   };
-  console.log("[webhooks.orders] 🔗 WhatsApp payload:", payload);
+  console.log("🔗 WhatsApp payload:", JSON.stringify(payload));
 
   return fetch(url, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+      "Content-Type":  "application/json",
+      Authorization:    `Bearer ${process.env.WHATSAPP_TOKEN}`,
     },
     body: JSON.stringify(payload),
   });
