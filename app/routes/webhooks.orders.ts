@@ -1,24 +1,24 @@
 // app/routes/webhooks.orders.ts
 import { json, type LoaderFunction, type ActionFunction } from "@remix-run/node";
 
-// Replace with your verify token for Meta’s webhook handshake
+// Your Meta webhook verify token
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN!;
 
-// 1️⃣ Handle GET for Meta verification
+// 1️⃣ GET: Meta verification handshake
 export const loader: LoaderFunction = async ({ request }) => {
   const url = new URL(request.url);
   const mode = url.searchParams.get("hub.mode");
-  const challenge = url.searchParams.get("hub.challenge");
   const token = url.searchParams.get("hub.verify_token");
+  const challenge = url.searchParams.get("hub.challenge");
 
-  console.log("🔍 Webhook verification request:", { mode, token });
+  console.log("🔍 Webhook verification:", { mode, token });
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     return new Response(challenge ?? "", { status: 200 });
   }
   return new Response("Forbidden", { status: 403 });
 };
 
-// 2️⃣ Handle POST for both Shopify and WhatsApp
+// 2️⃣ POST: Handle both Shopify order events and WhatsApp interactive replies
 export const action: ActionFunction = async ({ request }) => {
   const raw = await request.text();
   console.log("📥 Raw webhook payload:", raw);
@@ -31,37 +31,28 @@ export const action: ActionFunction = async ({ request }) => {
     return json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // 2.1️⃣ WhatsApp button reply?
+  // 2a️⃣ WhatsApp Quick Reply button tapped?
   const msg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
   if (msg?.interactive?.button_reply) {
-    const payload = msg.interactive.button_reply.id;           // e.g. "FULFILL_ORDER|820982911946154500" :contentReference[oaicite:9]{index=9}
+    const payload = msg.interactive.button_reply.id;          // "ACTION|orderId"
     console.log("🛎️ Button reply payload:", payload);
-
     const [actionId, orderId] = payload.split("|");
     console.log("🔗 Action:", actionId, "Order ID:", orderId);
-
     await handleShopifyAction(actionId, orderId);
     return json({ handled: actionId }, { status: 200 });
   }
 
-  // 2.2️⃣ New Shopify order event (assumed direct payload)
+  // 2b️⃣ Otherwise it’s a new Shopify order event
   const order = body;
-  console.log("✅ New Shopify order:", order.id);
+  console.log("✅ New Shopify order received:", order.id);
 
-  try {
-    const res = await sendToWhatsApp(order);
-    console.log("📤 WhatsApp API response:", res.status, await res.text());
-  } catch (err) {
-    console.error("❌ WhatsApp send failed:", err);
-    return json({ error: "WhatsApp send failed" }, { status: 502 });
-  }
-
+  const res = await sendToWhatsApp(order);
+  console.log("📤 WhatsApp API response:", res.status, await res.text());
   return json({ success: true }, { status: 200 });
 };
 
 // 3️⃣ Send WhatsApp notification with buttons
 async function sendToWhatsApp(order: any) {
-  const url = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   const buttons = [
     `FULFILL_ORDER|${order.id}`,
     `CANCEL_FULFILLMENT|${order.id}`,
@@ -75,7 +66,7 @@ async function sendToWhatsApp(order: any) {
     type: "template" as const,
     template: {
       name: "new_order_notification",
-      language: { code: "en" },
+      language: { code: "en" },              // 🔄 reverted to "en"
       components: [
         {
           type: "body" as const,
@@ -83,10 +74,10 @@ async function sendToWhatsApp(order: any) {
             { type: "text" as const, text: String(order.order_number) },
             { type: "text" as const, text: `${order.customer?.first_name} ${order.customer?.last_name}`.trim() },
             { type: "text" as const, text: order.email },
-            { type: "text" as const, text: (order.phone || order.shipping_address?.phone || order.billing_address?.phone) },
-            { type: "text" as const, text: [order.shipping_address.address1, order.shipping_address.city, order.shipping_address.country].filter(Boolean).join(", ") },
-            { type: "text" as const, text: order.line_items[0]?.title },
-            { type: "text" as const, text: String(order.line_items[0]?.quantity) },
+            { type: "text" as const, text: order.phone || order.shipping_address?.phone || order.billing_address?.phone || "N/A" },
+            { type: "text" as const, text: [order.shipping_address.address1, order.shipping_address.city, order.shipping_address.country, order.shipping_address.zip].filter(Boolean).join(", ") },
+            { type: "text" as const, text: order.line_items[0]?.title || "N/A" },
+            { type: "text" as const, text: String(order.line_items[0]?.quantity || 0) },
             { type: "text" as const, text: String(order.current_total_price) }
           ]
         },
@@ -94,8 +85,11 @@ async function sendToWhatsApp(order: any) {
           type: "button" as const,
           sub_type: "url" as const,
           index: 0,
-          parameters: [{ type: "text" as const, text: String(order.id) }]
+          parameters: [
+            { type: "text" as const, text: String(order.id) }
+          ]
         },
+        // Quick Replies with payloads matching your Button Text in Meta UI
         ...buttons.map((p, i) => ({
           type: "button" as const,
           sub_type: "quick_reply" as const,
@@ -107,14 +101,17 @@ async function sendToWhatsApp(order: any) {
   };
 
   console.log("🔗 WhatsApp payload:", JSON.stringify(payload));
-  return fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`
-    },
-    body: JSON.stringify(payload)
-  });
+  return fetch(
+    `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`
+      },
+      body: JSON.stringify(payload),
+    }
+  );
 }
 
 // 4️⃣ Invoke Shopify GraphQL based on button action
