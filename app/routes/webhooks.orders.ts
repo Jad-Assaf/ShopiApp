@@ -19,62 +19,48 @@ export const action: ActionFunction = async ({ request }) => {
     return json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // WhatsApp interactive button reply
+  // 1️⃣ Handle Quick Reply button events
   const msg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
   if (msg?.interactive?.button_reply) {
-    const replyId = msg.interactive.button_reply.id;
-    // retrieve order ID from context if you stored it when sending (not shown here)
-    const orderId = msg.context?.id /* or however you persist mapping */;
-    console.log("🛎️ Button reply:", replyId, "for order", orderId);
-    await handleShopifyAction(replyId, orderId);
-    return json({ handled: replyId }, { status: 200 });
+    const payload = msg.interactive.button_reply.id;
+    console.log("🛎️ Received payload:", payload);
+    const [actionId, orderId] = payload.split("|");
+    console.log("🔗 Action:", actionId, "Order ID:", orderId);
+    await handleShopifyAction(actionId, orderId);
+    return json({ handled: actionId }, { status: 200 });
   }
 
-  // New Shopify order webhook
+  // 2️⃣ Otherwise, treat as new order webhook
   const order = body;
-  console.log("✅ Parsed order:", {
-    id: order.id,
-    order_number: order.order_number,
-    customer: order.customer?.first_name,
-    items: order.line_items.length,
-  });
+  console.log("✅ New Shopify order:", order.id);
 
-  try {
-    const res = await sendToWhatsApp(order);
-    console.log("📤 WhatsApp API response:", res.status, await res.text());
-  } catch (err) {
-    console.error("❌ WhatsApp send error:", err);
-    return json({ error: "WhatsApp send failed" }, { status: 502 });
-  }
-
+  const res = await sendToWhatsApp(order);
+  console.log("📤 WhatsApp API response:", res.status, await res.text());
   return json({ success: true }, { status: 200 });
 };
 
 async function sendToWhatsApp(order: any) {
   const url = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
-  // Prepare parameters
   const orderNumber = String(order.order_number);
   const customerName = `${order.customer?.first_name ?? ""} ${order.customer?.last_name ?? ""}`.trim() || "Unknown";
   const email = order.email ?? "N/A";
-  const phone =
-    order.phone ||
-    order.shipping_address?.phone ||
-    order.billing_address?.phone ||
-    "N/A";
-  const addrParts = order.shipping_address || order.billing_address || {};
-  const address = [
-    addrParts.address1,
-    addrParts.address2,
-    addrParts.city,
-    addrParts.province,
-    addrParts.country,
-    addrParts.zip
-  ].filter(Boolean).join(", ");
+  const phone = order.phone || order.shipping_address?.phone || order.billing_address?.phone || "N/A";
+  const addr = order.shipping_address || order.billing_address || {};
+  const address = [addr.address1, addr.address2, addr.city, addr.province, addr.country, addr.zip]
+    .filter(Boolean).join(", ");
   const firstItem = order.line_items[0] || {};
   const itemName = firstItem.title || "N/A";
   const itemQty = String(firstItem.quantity ?? 0);
   const totalPrice = String(order.current_total_price);
+
+  // payloads embed both action and order ID
+  const buttons = [
+    `FULFILL_ORDER|${order.id}`,
+    `CANCEL_FULFILLMENT|${order.id}`,
+    `CANCEL_ORDER|${order.id}`,
+    `READY_FOR_PICKUP|${order.id}`,
+  ];
 
   const payload = {
     messaging_product: "whatsapp",
@@ -82,7 +68,7 @@ async function sendToWhatsApp(order: any) {
     type: "template" as const,
     template: {
       name: "new_order_notification",
-      language: { code: "en" },
+      language: { code: "en_US" },
       components: [
         {
           type: "body" as const,
@@ -105,38 +91,12 @@ async function sendToWhatsApp(order: any) {
             { type: "text" as const, text: String(order.id) }
           ]
         },
-        {
+        ...buttons.map((p, i) => ({
           type: "button" as const,
           sub_type: "quick_reply" as const,
-          index: 1,
-          parameters: [
-            { type: "payload" as const, payload: "Fulfill Order" }
-          ]
-        },
-        {
-          type: "button" as const,
-          sub_type: "quick_reply" as const,
-          index: 2,
-          parameters: [
-            { type: "payload" as const, payload: "Cancel Fulfillment" }
-          ]
-        },
-        {
-          type: "button" as const,
-          sub_type: "quick_reply" as const,
-          index: 3,
-          parameters: [
-            { type: "payload" as const, payload: "Cancel Order" }
-          ]
-        },
-        {
-          type: "button" as const,
-          sub_type: "quick_reply" as const,
-          index: 4,
-          parameters: [
-            { type: "payload" as const, payload: "Ready For Pickup" }
-          ]
-        }
+          index: i + 1,
+          parameters: [{ type: "payload" as const, payload: p }]
+        }))
       ]
     }
   };
@@ -153,51 +113,60 @@ async function sendToWhatsApp(order: any) {
 }
 
 async function handleShopifyAction(actionId: string, orderId: string) {
-  const endpoint = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-07/graphql.json`;
+  const endpoint = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2025-04/graphql.json`;
   const headers = {
     "Content-Type": "application/json",
     "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_TOKEN!
   };
+
   let query = "";
   let variables: any = {};
 
   switch (actionId) {
-    case "Fulfill Order":
-      query = `mutation fulfillmentCreate($orderId: ID!) {
-        fulfillmentCreate(fulfillment: {orderId: $orderId}) {
-          fulfillment { id }
-          userErrors { field message }
-        }
-      }`;
-      variables = { orderId };
+    case "FULFILL_ORDER":
+      query = `
+        mutation fulfillmentCreate($orderId: ID!) {
+          fulfillmentCreate(fulfillment: {orderId: $orderId}) {
+            fulfillment { id }
+            userErrors { field message }
+          }
+        }`;
+      variables = { orderId: `gid://shopify/Order/${orderId}` };
       break;
-    case "Cancel Fulfillment":
-      query = `mutation fulfillmentOrderCancel($id: ID!) {
-        fulfillmentOrderCancel(id: $id) {
-          fulfillmentOrder { id }
-          userErrors { field message }
-        }
-      }`;
-      variables = { id: orderId };
+
+    case "CANCEL_FULFILLMENT":
+      query = `
+        mutation fulfillmentOrderCancel($id: ID!) {
+          fulfillmentOrderCancel(id: $id) {
+            fulfillmentOrder { id }
+            userErrors { field message }
+          }
+        }`;
+      variables = { id: `gid://shopify/Order/${orderId}` };
       break;
-    case "Cancel Order":
-      query = `mutation orderCancel($orderId: ID!) {
-        orderCancel(id: $orderId) {
-          order { id }
-          userErrors { field message }
-        }
-      }`;
-      variables = { orderId };
+
+    case "CANCEL_ORDER":
+      query = `
+        mutation orderCancel($orderId: ID!) {
+          orderCancel(id: $orderId) {
+            order { id }
+            userErrors { field message }
+          }
+        }`;
+      variables = { orderId: `gid://shopify/Order/${orderId}` };
       break;
-    case "Ready For Pickup":
-      query = `mutation prepareForPickup($id: ID!) {
-        fulfillmentOrderLineItemsPreparedForPickup(id: $id) {
-          fulfillmentOrder { id }
-          userErrors { field message }
-        }
-      }`;
-      variables = { id: orderId };
+
+    case "READY_FOR_PICKUP":
+      query = `
+        mutation prepareForPickup($id: ID!) {
+          fulfillmentOrderLineItemsPreparedForPickup(id: $id) {
+            fulfillmentOrder { id }
+            userErrors { field message }
+          }
+        }`;
+      variables = { id: `gid://shopify/Order/${orderId}` };
       break;
+
     default:
       console.warn("⚠️ Unrecognized action:", actionId);
       return;
