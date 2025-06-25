@@ -117,7 +117,39 @@ async function sendToWhatsApp(order: any) {
               text: String(order.id)
             }
           ]
-        }        
+        },
+        {
+          type: "button" as const,
+          sub_type: "quick_reply" as const,
+          index: 1,
+          parameters: [
+            { type: "payload" as const, text: "FULFILL_ORDER" }
+          ]
+        },
+        {
+          type: "button" as const,
+          sub_type: "quick_reply" as const,
+          index: 2,
+          parameters: [
+            { type: "payload" as const, text: "CANCEL_FULFILLMENT" }
+          ]
+        },
+        {
+          type: "button" as const,
+          sub_type: "quick_reply" as const,
+          index: 3,
+          parameters: [
+            { type: "payload" as const, text: "CANCEL_ORDER" }
+          ]
+        },
+        {
+          type: "button" as const,
+          sub_type: "quick_reply" as const,
+          index: 4,
+          parameters: [
+            { type: "payload" as const, text: "MARK_READY_FOR_PICKUP" }
+          ]
+        }
       ]
     }
   };
