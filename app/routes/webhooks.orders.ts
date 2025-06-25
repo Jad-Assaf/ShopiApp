@@ -61,7 +61,7 @@ export const action: ActionFunction = async ({ request }) => {
 
 // 3️⃣ Send WhatsApp notification with buttons
 async function sendToWhatsApp(order: any) {
-  const url = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  const url = `https://graph.facebook.com/v22.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   const buttons = [
     `FULFILL_ORDER|${order.id}`,
     `CANCEL_FULFILLMENT|${order.id}`,
@@ -75,7 +75,7 @@ async function sendToWhatsApp(order: any) {
     type: "template" as const,
     template: {
       name: "new_order_notification",
-      language: { code: "en_US" },
+      language: { code: "en" },
       components: [
         {
           type: "body" as const,
@@ -119,7 +119,7 @@ async function sendToWhatsApp(order: any) {
 
 // 4️⃣ Invoke Shopify GraphQL based on button action
 async function handleShopifyAction(actionId: string, orderId: string) {
-  const endpoint = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-07/graphql.json`;
+  const endpoint = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2025-04/graphql.json`;
   const headers = {
     "Content-Type": "application/json",
     "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_TOKEN!
