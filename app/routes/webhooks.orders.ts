@@ -11,7 +11,7 @@ export const action: ActionFunction = async ({ request }) => {
   try {
     // 1. Read & log the Shopify topic
     const headers = Object.fromEntries(request.headers);
-    const topic   = headers["x-shopify-topic"];
+    const topic = headers["x-shopify-topic"];
     console.log("📦 Shopify Topic:", topic);
 
     // 2. Read & log the raw body
@@ -61,16 +61,16 @@ async function sendToWhatsApp(order: any) {
   const url = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
   // Prepare values
-  const orderNumber   = String(order.order_number);
-  const customerName  = `${order.customer?.first_name ?? ""} ${order.customer?.last_name ?? ""}`.trim() || "Unknown";
-  const email         = order.email ?? "N/A";
-  const phone         =
+  const orderNumber = String(order.order_number);
+  const customerName = `${order.customer?.first_name ?? ""} ${order.customer?.last_name ?? ""}`.trim() || "Unknown";
+  const email = order.email ?? "N/A";
+  const phone =
     order.phone ||
     order.shipping_address?.phone ||
     order.billing_address?.phone ||
     "N/A";
-  const addressParts  = order.shipping_address || order.billing_address || {};
-  const address       = [
+  const addressParts = order.shipping_address || order.billing_address || {};
+  const address = [
     addressParts.address1,
     addressParts.address2,
     addressParts.city,
@@ -80,10 +80,10 @@ async function sendToWhatsApp(order: any) {
   ]
     .filter(Boolean)
     .join(", ");
-  const firstItem     = order.line_items[0] || {};
-  const itemName      = firstItem.title || "N/A";
-  const itemQty       = String(firstItem.quantity ?? 0);
-  const totalItems    = String(
+  const firstItem = order.line_items[0] || {};
+  const itemName = firstItem.title || "N/A";
+  const itemQty = String(firstItem.quantity ?? 0);
+  const totalItems = String(
     order.line_items.reduce((sum: number, li: any) => sum + (li.quantity || 0), 0)
   );
 
@@ -107,6 +107,17 @@ async function sendToWhatsApp(order: any) {
             { type: "text" as const, text: itemQty },
             { type: "text" as const, text: totalItems }
           ]
+        },
+        {
+          type: "button" as const,
+          sub_type: "quick_reply" as const,
+          index: "0",
+          parameters: [
+            {
+              type: "payload" as const,
+              payload: String(order.id)
+            }
+          ]
         }
       ]
     }
@@ -117,8 +128,8 @@ async function sendToWhatsApp(order: any) {
   return fetch(url, {
     method: "POST",
     headers: {
-      "Content-Type":  "application/json",
-      Authorization:    `Bearer ${process.env.WHATSAPP_TOKEN}`
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`
     },
     body: JSON.stringify(payload)
   });
