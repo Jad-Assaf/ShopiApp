@@ -1,33 +1,34 @@
-// app/routes/webhooks/orders.ts
-import { data, type ActionFunction } from "@remix-run/node";
+import { json, type ActionFunction } from "@remix-run/node";
 import crypto from "crypto";
 
+export const loader = () => new Response(null, { status: 204 });
+
 export const action: ActionFunction = async ({ request }) => {
-  const hmac   = request.headers.get("X-Shopify-Hmac-Sha256") || "";
-  const body   = await request.text();
-  const hash   = crypto
+  // 1. Read and verify Shopify’s HMAC header
+  const hmacHeader = request.headers.get("X-Shopify-Hmac-Sha256") || "";
+  const rawBody   = await request.text();
+  const computedHmac = crypto
     .createHmac("sha256", process.env.SHOPIFY_APP_SECRET!)
-    .update(body, "utf8")
+    .update(rawBody, "utf8")
     .digest("base64");
 
-  // 401 on invalid signature
   if (
-    !crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(hmac))
+    !crypto.timingSafeEqual(
+      Buffer.from(computedHmac),
+      Buffer.from(hmacHeader)
+    )
   ) {
-    return data(
-      { error: "Invalid HMAC signature" },
-      { status: 401 }
-    );
+    // Wrap error response
+    return json({ error: "Invalid HMAC signature" }, { status: 401 });
   }
 
-  const order = JSON.parse(body);
+  // 2. Parse the order and forward to WhatsApp
+  const order = JSON.parse(rawBody);
   console.log("🛎️ Shopify order event:", order);
-
-  // forward to WhatsApp…
   await sendToWhatsApp(order);
 
-  // 200 OK with a simple object
-  return { received: true };
+  // 3. Wrap success response
+  return json({ received: true });
 };
 
 // helper can stay the same
